@@ -84,12 +84,12 @@ fn doHost(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(HostA
     const common_dir: ?[]const u8 = if (args.positionals.len == 1) args.positionals[0] else null;
 
     if (args.options.@"get-dir" orelse common_dir) |path| {
-        state.get_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = true, .no_follow = true });
+        state.get_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = false, .no_follow = true });
     }
     defer if (state.get_dir) |*dir| dir.close();
 
     if (args.options.@"put-dir" orelse common_dir) |path| {
-        state.put_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = true, .no_follow = true });
+        state.put_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = false, .no_follow = true });
     }
     defer if (state.put_dir) |*dir| dir.close();
 
@@ -112,7 +112,7 @@ fn doHost(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(HostA
         var client = try sock.accept();
         defer client.close();
 
-        std.log.info("accepted connection from {}", .{try client.getRemoteEndPoint()});
+        // std.log.info("accepted connection from {}", .{try client.getRemoteEndPoint()});
 
         handleClientConnection(state, &arena.allocator, client) catch |err| {
             if (std.builtin.mode == .Debug)
@@ -139,11 +139,13 @@ fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client
     };
     defer allocator.free(query);
 
+    const remote_endpoint = try client.getRemoteEndPoint();
+
     if (std.mem.startsWith(u8, query, "GET ")) {
         if (host.get_dir) |dir| {
             const path = try resolvePath(&buffer, query[4..]);
             std.debug.assert(path[0] == '/');
-            std.log.info("GET {s}", .{path});
+            std.log.info("{}: GET {s}", .{ remote_endpoint, path });
 
             var file = try dir.openFile(path[1..], .{ .read = true, .write = false });
             defer file.close();
@@ -159,7 +161,7 @@ fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client
 
             std.debug.assert(path[0] == '/');
 
-            std.log.info("PUT {s}", .{path});
+            std.log.info("{}: PUT {s}", .{ remote_endpoint, path });
 
             try receiveFile(dir, path[1..], client);
         } else {

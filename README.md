@@ -33,7 +33,3 @@ C: => "$(MD5SUM)"
 S: => nothing | connection drop
 C: => "$(file contents)"
 ```
-
-```
-clear && ( echo -ne 'PUT /new/../../new/date.txt\r\n'; date ) | nc 127.0.0.1 17457 -w1 
-```
