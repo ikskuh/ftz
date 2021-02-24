@@ -33,6 +33,9 @@ Verbs:
   ftz put [file] [uri]
     Uploads [file] (a local path) to [uri] (a ftz uri)
 
+  ftz version
+    Prints the ftz version.
+
 Examples:
   ftz host .
     Open the current directory for both upload and download.

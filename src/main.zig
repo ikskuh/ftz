@@ -5,6 +5,7 @@ const args_parser = @import("args");
 
 const default_port = 17457;
 const buffer_size = 2 * 1024 * 1024;
+const ftz_version = "1.0.0";
 
 const HashAlgorithm = std.crypto.hash.Md5;
 
@@ -42,6 +43,10 @@ pub fn main() !u8 {
         return try doGet(allocator, args_parser.parse(GetArgs, &args, allocator) catch |err| return 1);
     } else if (std.mem.eql(u8, verb, "put")) {
         return try doPut(allocator, args_parser.parse(PutArgs, &args, allocator) catch |err| return 1);
+    } else if (std.mem.eql(u8, verb, "version")) {
+        var writer = std.io.getStdOut().writer();
+        try writer.writeAll(ftz_version ++ "\n");
+        return 0;
     } else {
         var writer = std.io.getStdErr().writer();
         try writer.print("Unknown verb '{s}'\n", .{verb});
@@ -408,6 +413,9 @@ fn printUsage(writer: anytype) !void {
         \\
         \\  ftz put [file] [uri]
         \\    Uploads [file] (a local path) to [uri] (a ftz uri)
+        \\
+        \\  ftz version
+        \\    Prints the ftz version.
         \\
         \\Examples:
         \\  ftz host .
