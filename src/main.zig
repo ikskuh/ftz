@@ -390,22 +390,32 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll(
         \\ftz [verb]
         \\  Quickly transfer files between two systems connected via network.
+        \\        \\Verbs:
+        \\  ftz help
+        \\    Prints this help
         \\
-        \\ftz help
-        \\   Prints this help
+        \\  ftz host [path] [--get-dir path] [--put-dir path] [--port num] 
+        \\    Hosts the given directories for either upload or download.
+        \\    path            If given, sets both --get-dir and --put-dir to the same directory.
+        \\    --get-dir path  Sets the directory for transfers to a client. No access outside this directory is allowed.
+        \\    --put-dir path  Sets the directory for transfers from a client. No access outside this directory is allowed.
+        \\    --port    num   Sets the port where ftz will serve the data. Default is 17457
         \\
-        \\ftz host [path] [--get-dir path] [--put-dir path] [--port num] 
-        \\   Hosts the given directories for either upload or download.
-        \\   path            If given, sets both --get-dir and --put-dir to the same directory.
-        \\   --get-dir path  Sets the directory for transfers to a client. No access outside this directory is allowed.
-        \\   --put-dir path  Sets the directory for transfers from a client. No access outside this directory is allowed.
-        \\   --port    num   Sets the port where ftz will serve the data. Default is 17457
+        \\  ftz get [--output file] [uri]
+        \\    Fetches a file from [uri] into the current directory. The file name will be the file name in the URI.
+        \\    uri             The uri to the file that should be downloaded.
+        \\    --output file   Saves the resulting file into [file] instead of the basename of the URI.
         \\
-        \\ftz get [uri]
-        \\   Fetches a file from [uri]
+        \\  ftz put [file] [uri]
+        \\    Uploads [file] (a local path) to [uri] (a ftz uri)
         \\
-        \\ftz put [file] [uri]
-        \\   Uploads [file] (a local path) to [uri] (a ftz uri)
+        \\Examples:
+        \\  ftz host .
+        \\    Open the current directory for both upload and download.
+        \\  ftz put debug.log ftz://device.local/debug.log
+        \\    Uploads debug.log to the server.
+        \\  ftz get ftz://device.local/debug.log
+        \\    Downloads debug.log from the server.
         \\
     );
 }
