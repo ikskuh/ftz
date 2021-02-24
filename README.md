@@ -45,6 +45,12 @@ Examples:
     Downloads debug.log from the server.
 ```
 
+## Usage / Concept  / Design
+
+FTZ was designed to transfer files between virtual machines and the host system or different machines on the same local network.
+
+It is not designed to be a constantly running server, especially not on the internet and thus has (by design) no authentication, no session resumption or whatsoever. It has an integrity check though to verify if the transfer was successful.
+
 ## Building
 [![Build](https://github.com/MasterQ32/ftz/actions/workflows/cross-build.yml/badge.svg)](https://github.com/MasterQ32/ftz/actions/workflows/cross-build.yml)
 
