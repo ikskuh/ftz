@@ -3,6 +3,11 @@ const network = @import("network");
 const uri_parser = @import("uri");
 const args_parser = @import("args");
 
+const default_port = 17457;
+const buffer_size = 2 * 1024 * 1024;
+
+const HashAlgorithm = std.crypto.hash.Md5;
+
 pub fn main() !u8 {
     try network.init();
     defer network.deinit();
@@ -26,7 +31,7 @@ pub fn main() !u8 {
         try printUsage(writer);
         return 1;
     });
-    errdefer allocator.free(verb);
+    defer allocator.free(verb);
 
     if (std.mem.eql(u8, verb, "help")) {
         try printUsage(std.io.getStdOut().writer());
@@ -48,7 +53,7 @@ pub fn main() !u8 {
 const HostArgs = struct {
     @"get-dir": ?[]const u8 = null,
     @"put-dir": ?[]const u8 = null,
-    @"port": u16 = 17457,
+    @"port": u16 = default_port,
 };
 
 const HostState = struct {
@@ -110,6 +115,8 @@ fn doHost(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(HostA
         std.log.info("accepted connection from {}", .{try client.getRemoteEndPoint()});
 
         handleClientConnection(state, &arena.allocator, client) catch |err| {
+            if (std.builtin.mode == .Debug)
+                return err;
             std.log.err("handling client connection failed: {s}", .{@errorName(err)});
         };
     }
@@ -141,36 +148,20 @@ fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client
             var file = try dir.openFile(path[1..], .{ .read = true, .write = false });
             defer file.close();
 
-            while (true) {
-                const len = try file.read(&buffer);
-                if (len == 0)
-                    break;
-
-                try writer.writeAll(buffer[0..len]);
-            }
+            try transferFile(file, client);
         } else {
             return error.GetNotAllowed;
         }
     } else if (std.mem.startsWith(u8, query, "PUT ")) {
         if (host.put_dir) |dir| {
-            const path = try resolvePath(&buffer, query[4..]);
+            const path = try allocator.dupe(u8, try resolvePath(&buffer, query[4..]));
+            defer allocator.free(path);
+
             std.debug.assert(path[0] == '/');
+
             std.log.info("PUT {s}", .{path});
 
-            if (std.fs.path.dirname(path[1..])) |parent| {
-                try dir.makePath(parent);
-            }
-
-            var file = try dir.createFile(path[1..], .{});
-            defer file.close();
-
-            while (true) {
-                const len = try reader.read(&buffer);
-                if (len == 0)
-                    break;
-
-                try file.writer().writeAll(buffer[0..len]);
-            }
+            try receiveFile(dir, path[1..], client);
         } else {
             return error.PutNotAllowed;
         }
@@ -179,9 +170,89 @@ fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client
     }
 }
 
-const GetArgs = struct {};
+/// Parses and validates a FTZ uri.
+const UriInformation = struct {
+    const Self = @This();
+
+    host: []const u8,
+    port: u16,
+    path: []const u8,
+
+    fn parse(allocator: *std.mem.Allocator, string: []const u8) !Self {
+        const stderr = std.io.getStdErr().writer();
+
+        var uri = uri_parser.parse(string) catch |err| {
+            try stderr.print("Failed to parse URI: {s}\n", .{@errorName(err)});
+            return error.InvalidUri;
+        };
+
+        if (uri.scheme != null and !std.mem.eql(u8, uri.scheme.?, "ftz")) {
+            try stderr.print("URI scheme must be 'ftz://'!\n", .{});
+            return error.InvalidUri;
+        }
+
+        if (uri.user != null or uri.password != null or uri.query != null or uri.fragment != null) {
+            try stderr.print("URI contains invalid elements. Found either a user, password, query or fragment!\n", .{});
+            return error.InvalidUri;
+        }
+
+        if (uri.host == null) {
+            try stderr.print("URI requires host name!\n", .{});
+            return error.InvalidUri;
+        }
+        if (uri.path == null) {
+            try stderr.print("URI requires host name!\n", .{});
+            return error.InvalidUri;
+        }
+
+        return Self{
+            .host = uri.host.?,
+            .port = uri.port orelse default_port,
+            .path = try uri_parser.unescapeString(allocator, uri.path.?),
+        };
+    }
+
+    fn deinit(self: *Self, allocator: *std.mem.Allocator) void {
+        allocator.free(self.path);
+        self.* = undefined;
+    }
+};
+
+const GetArgs = struct {
+    @"output": ?[]const u8 = null,
+
+    pub const shorthands = .{
+        .o = "output",
+    };
+};
 fn doGet(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(GetArgs)) !u8 {
     defer args.deinit();
+
+    var stderr = std.io.getStdErr().writer();
+
+    if (args.positionals.len != 1) {
+        try stderr.print("Expected both source file and target URI!\n", .{});
+        return 1;
+    }
+
+    var server_data = UriInformation.parse(allocator, args.positionals[0]) catch return 1;
+    defer server_data.deinit(allocator);
+
+    const target_file = args.options.output orelse std.fs.path.basename(server_data.path);
+
+    var socket = network.connectToHost(allocator, server_data.host, server_data.port, .tcp) catch |err| switch (err) {
+        error.CouldNotConnect => {
+            try stderr.writeAll("Failed to connect to host!\n");
+            return 1;
+        },
+        else => |e| return e,
+    };
+    defer socket.close();
+    var writer = socket.writer();
+
+    try writer.print("GET {s}\r\n", .{server_data.path});
+
+    try receiveFile(std.fs.cwd(), target_file, socket);
 
     return 0;
 }
@@ -190,7 +261,124 @@ const PutArgs = struct {};
 fn doPut(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(PutArgs)) !u8 {
     defer args.deinit();
 
+    var stderr = std.io.getStdErr().writer();
+
+    if (args.positionals.len != 2) {
+        try stderr.print("Expected both source file and target URI!\n", .{});
+        return 1;
+    }
+
+    var server_data = UriInformation.parse(allocator, args.positionals[1]) catch return 1;
+    defer server_data.deinit(allocator);
+
+    var source_file = std.fs.cwd().openFile(args.positionals[0], .{ .read = true, .write = false }) catch |err| switch (err) {
+        error.FileNotFound => {
+            try stderr.writeAll("File not found!\n");
+            return 1;
+        },
+        else => |e| return e,
+    };
+    defer source_file.close();
+
+    var socket = network.connectToHost(allocator, server_data.host, server_data.port, .tcp) catch |err| switch (err) {
+        error.CouldNotConnect => {
+            try stderr.writeAll("Failed to connect to host!\n");
+            return 1;
+        },
+        else => |e| return e,
+    };
+    defer socket.close();
+    var writer = socket.writer();
+
+    try writer.print("PUT {s}\r\n", .{server_data.path});
+
+    try transferFile(source_file, socket);
+
     return 0;
+}
+
+/// Transfers the given `file` to the `socket`. Will compute the hash for the file and prepend it to the stream.
+fn transferFile(file: std.fs.File, socket: network.Socket) !void {
+    var buffer: [buffer_size]u8 = undefined;
+
+    var hasher = HashAlgorithm.init(.{});
+
+    while (true) {
+        const len = try file.read(&buffer);
+        if (len == 0)
+            break;
+        hasher.update(buffer[0..len]);
+    }
+
+    var hash: [HashAlgorithm.digest_length]u8 = undefined;
+    hasher.final(&hash);
+
+    try file.seekTo(0);
+
+    var writer = socket.writer();
+
+    try writer.print("{x}\r\n", .{hash});
+
+    while (true) {
+        const len = try file.read(&buffer);
+        if (len == 0)
+            break;
+        try writer.writeAll(buffer[0..len]);
+    }
+}
+
+/// Receives a file from `socket` and will store it in `path` relative to `dir`.
+/// Will unlink the file when receiption failed.
+fn receiveFile(dir: std.fs.Dir, path: []const u8, socket: network.Socket) !void {
+    var reader = socket.reader();
+
+    var ascii_hash: [2 * HashAlgorithm.digest_length + 2]u8 = undefined;
+    reader.readNoEof(&ascii_hash) catch |err| switch (err) {
+        error.EndOfStream => return error.ProtocolViolation,
+        else => |e| return e,
+    };
+
+    if (!std.mem.eql(u8, ascii_hash[2 * HashAlgorithm.digest_length ..], "\r\n")) {
+        return error.ProtocolViolation;
+    }
+
+    var expected_hash: [HashAlgorithm.digest_length]u8 = undefined;
+    std.fmt.hexToBytes(&expected_hash, ascii_hash[0 .. 2 * HashAlgorithm.digest_length]) catch {
+        return error.ProtocolViolation;
+    };
+
+    if (std.fs.path.dirname(path)) |parent| {
+        try dir.makePath(parent);
+    }
+
+    const actual_hash = blk: {
+        var file = try dir.createFile(path, .{});
+        defer file.close();
+
+        var hasher = HashAlgorithm.init(.{});
+
+        var buffer: [buffer_size]u8 = undefined;
+        while (true) {
+            const len = try reader.read(&buffer);
+            if (len == 0)
+                break;
+
+            hasher.update(buffer[0..len]);
+            try file.writer().writeAll(buffer[0..len]);
+        }
+
+        var hash: [HashAlgorithm.digest_length]u8 = undefined;
+        hasher.final(&hash);
+        break :blk hash;
+    };
+
+    if (!std.mem.eql(u8, &actual_hash, &expected_hash)) {
+        std.log.err("Failed to receive file: Hash mismatch! Expected {x}, got {x}", .{ expected_hash, actual_hash });
+
+        dir.deleteFile(path) catch |err| {
+            std.log.err("Failed to unlink invalid file: {s}", .{path});
+        };
+    }
 }
 
 fn printUsage(writer: anytype) !void {
@@ -217,6 +405,7 @@ fn printUsage(writer: anytype) !void {
     );
 }
 
+/// Resolves a unix-like path and removes all "." and ".." from it. Will not escape the root and can be used to sanitize inputs.
 fn resolvePath(buffer: []u8, src_path: []const u8) error{BufferTooSmall}![]u8 {
     if (buffer.len == 0)
         return error.BufferTooSmall;
@@ -285,4 +474,13 @@ test "resolvePath" {
     try testResolve("/", "/..");
     try testResolve("/", "/../../../..");
     try testResolve("/a/b/c", "a/b/c/");
+
+    try testResolve("/new/date.txt", "/new/../../new/date.txt");
+}
+
+test "resolvePath overflow" {
+    var buf: [1]u8 = undefined;
+
+    std.testing.expectEqualStrings("/", try resolvePath(&buf, "/"));
+    std.testing.expectError(error.BufferTooSmall, resolvePath(&buf, "a")); // will resolve to "/a"
 }
