@@ -344,9 +344,12 @@ fn receiveFile(dir: std.fs.Dir, path: []const u8, socket: network.Socket) !void 
         return error.ProtocolViolation;
     }
 
-    var expected_hash: [HashAlgorithm.digest_length]u8 = undefined;
-    std.fmt.hexToBytes(&expected_hash, ascii_hash[0 .. 2 * HashAlgorithm.digest_length]) catch {
-        return error.ProtocolViolation;
+    const expected_hash = blk: {
+        var hash_buf: [HashAlgorithm.digest_length]u8 = undefined;
+        const slice = std.fmt.hexToBytes(&hash_buf, ascii_hash[0 .. 2 * HashAlgorithm.digest_length]) catch {
+            return error.ProtocolViolation;
+        };
+        break :blk slice[0..HashAlgorithm.digest_length].*;
     };
 
     if (std.fs.path.dirname(path)) |parent| {
