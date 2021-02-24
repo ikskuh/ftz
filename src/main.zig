@@ -157,6 +157,10 @@ fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client
             std.debug.assert(path[0] == '/');
             std.log.info("PUT {s}", .{path});
 
+            if (std.fs.path.dirname(path[1..])) |parent| {
+                try dir.makePath(parent);
+            }
+
             var file = try dir.createFile(path[1..], .{});
             defer file.close();
 
