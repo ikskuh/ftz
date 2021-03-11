@@ -324,7 +324,7 @@ fn transferFile(file: std.fs.File, socket: network.Socket) !void {
 
     var writer = socket.writer();
 
-    try writer.print("{x}\r\n", .{hash});
+    try writer.print("{}\r\n", .{std.fmt.fmtSliceHexLower(&hash)});
 
     while (true) {
         const len = try file.read(&buffer);
@@ -383,7 +383,7 @@ fn receiveFile(dir: std.fs.Dir, path: []const u8, socket: network.Socket) !void 
     };
 
     if (!std.mem.eql(u8, &actual_hash, &expected_hash)) {
-        std.log.err("Failed to receive file: Hash mismatch! Expected {x}, got {x}", .{ expected_hash, actual_hash });
+        std.log.err("Failed to receive file: Hash mismatch! Expected {}, got {}", .{ std.fmt.fmtSliceHexLower(&expected_hash), std.fmt.fmtSliceHexLower(&actual_hash) });
 
         dir.deleteFile(path) catch |err| {
             std.log.err("Failed to unlink invalid file: {s}", .{path});
