@@ -38,11 +38,11 @@ pub fn main() !u8 {
         try printUsage(std.io.getStdOut().writer());
         return 0;
     } else if (std.mem.eql(u8, verb, "host")) {
-        return try doHost(allocator, args_parser.parse(HostArgs, &args, allocator) catch |err| return 1);
+        return try doHost(allocator, args_parser.parse(HostArgs, &args, allocator, .print) catch return 1);
     } else if (std.mem.eql(u8, verb, "get")) {
-        return try doGet(allocator, args_parser.parse(GetArgs, &args, allocator) catch |err| return 1);
+        return try doGet(allocator, args_parser.parse(GetArgs, &args, allocator, .print) catch return 1);
     } else if (std.mem.eql(u8, verb, "put")) {
-        return try doPut(allocator, args_parser.parse(PutArgs, &args, allocator) catch |err| return 1);
+        return try doPut(allocator, args_parser.parse(PutArgs, &args, allocator, .print) catch return 1);
     } else if (std.mem.eql(u8, verb, "version")) {
         var writer = std.io.getStdOut().writer();
         try writer.writeAll(ftz_version ++ "\n");
@@ -476,7 +476,7 @@ fn testResolve(expected: []const u8, input: []const u8) !void {
     var buffer: [1024]u8 = undefined;
 
     const actual = try resolvePath(&buffer, input);
-    std.testing.expectEqualStrings(expected, actual);
+    try std.testing.expectEqualStrings(expected, actual);
 }
 
 test "resolvePath" {
@@ -504,6 +504,6 @@ test "resolvePath" {
 test "resolvePath overflow" {
     var buf: [1]u8 = undefined;
 
-    std.testing.expectEqualStrings("/", try resolvePath(&buf, "/"));
-    std.testing.expectError(error.BufferTooSmall, resolvePath(&buf, "a")); // will resolve to "/a"
+    try std.testing.expectEqualStrings("/", try resolvePath(&buf, "/"));
+    try std.testing.expectError(error.BufferTooSmall, resolvePath(&buf, "a")); // will resolve to "/a"
 }
