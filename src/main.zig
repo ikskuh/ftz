@@ -133,7 +133,7 @@ fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client
     var buffer: [1024]u8 = undefined;
 
     var reader = client.reader();
-    var writer = client.writer();
+    // var writer = client.writer();
 
     const query = blk: {
         const query_raw = (try reader.readUntilDelimiterOrEof(&buffer, '\n')) orelse return error.ProtocolViolation;
@@ -385,7 +385,7 @@ fn receiveFile(dir: std.fs.Dir, path: []const u8, socket: network.Socket) !void 
     if (!std.mem.eql(u8, &actual_hash, &expected_hash)) {
         std.log.err("Failed to receive file: Hash mismatch! Expected {}, got {}", .{ std.fmt.fmtSliceHexLower(&expected_hash), std.fmt.fmtSliceHexLower(&actual_hash) });
 
-        dir.deleteFile(path) catch |err| {
+        dir.deleteFile(path) catch {
             std.log.err("Failed to unlink invalid file: {s}", .{path});
         };
     }

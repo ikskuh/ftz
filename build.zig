@@ -3,15 +3,15 @@ const std = @import("std");
 const pkgs = struct {
     const uri = std.build.Pkg{
         .name = "uri",
-        .path = "./deps/uri/uri.zig",
+        .path = .{ .path = "./deps/uri/uri.zig" },
     };
     const args = std.build.Pkg{
         .name = "args",
-        .path = "./deps/args/args.zig",
+        .path = .{ .path = "./deps/args/args.zig" },
     };
     const network = std.build.Pkg{
         .name = "network",
-        .path = "./deps/network/network.zig",
+        .path = .{ .path = "./deps/network/network.zig" },
     };
 };
 
