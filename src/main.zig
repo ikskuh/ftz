@@ -9,6 +9,33 @@ const ftz_version = "1.0.0";
 
 const HashAlgorithm = std.crypto.hash.Md5;
 
+const CliOptions = struct {
+    help: bool = false,
+};
+
+const CliVerb = union(enum) {
+    host: HostArgs,
+    get: GetArgs,
+    put: PutArgs,
+    version: struct {},
+    help: struct {},
+
+    const HostArgs = struct {
+        @"get-dir": ?[]const u8 = null,
+        @"put-dir": ?[]const u8 = null,
+        @"port": u16 = default_port,
+    };
+
+    const GetArgs = struct {
+        @"output": ?[]const u8 = null,
+
+        pub const shorthands = .{
+            .o = "output",
+        };
+    };
+    const PutArgs = struct {};
+};
+
 pub fn main() !u8 {
     try network.init();
     defer network.deinit();
@@ -18,82 +45,67 @@ pub fn main() !u8 {
 
     const allocator = &gpa.allocator;
 
-    var args = std.process.args();
+    var cli = args_parser.parseWithVerbForCurrentProcess(CliOptions, CliVerb, allocator, .print) catch return 1;
+    defer cli.deinit();
 
-    const executable_name = try (args.next(allocator) orelse {
-        try std.io.getStdErr().writer().writeAll("Failed to get executable name from the argument list!\n");
-        return error.NoExecutableName;
-    });
-    defer allocator.free(executable_name);
-
-    const verb = try (args.next(allocator) orelse {
-        var writer = std.io.getStdErr().writer();
-        try writer.writeAll("Missing verb. Try 'ftz help' to see all possible verbs!\n");
-        try printUsage(writer);
-        return 1;
-    });
-    defer allocator.free(verb);
-
-    if (std.mem.eql(u8, verb, "help")) {
+    if (cli.options.help) {
         try printUsage(std.io.getStdOut().writer());
         return 0;
-    } else if (std.mem.eql(u8, verb, "host")) {
-        return try doHost(allocator, args_parser.parse(HostArgs, &args, allocator, .print) catch return 1);
-    } else if (std.mem.eql(u8, verb, "get")) {
-        return try doGet(allocator, args_parser.parse(GetArgs, &args, allocator, .print) catch return 1);
-    } else if (std.mem.eql(u8, verb, "put")) {
-        return try doPut(allocator, args_parser.parse(PutArgs, &args, allocator, .print) catch return 1);
-    } else if (std.mem.eql(u8, verb, "version")) {
-        var writer = std.io.getStdOut().writer();
-        try writer.writeAll(ftz_version ++ "\n");
-        return 0;
-    } else {
+    }
+    if (cli.verb == null) {
         var writer = std.io.getStdErr().writer();
-        try writer.print("Unknown verb '{s}'\n", .{verb});
+        try writer.print("Unknown verb\n", .{});
         try printUsage(writer);
         return 1;
     }
-}
 
-const HostArgs = struct {
-    @"get-dir": ?[]const u8 = null,
-    @"put-dir": ?[]const u8 = null,
-    @"port": u16 = default_port,
-};
+    return switch (cli.verb.?) {
+        .help => {
+            try printUsage(std.io.getStdOut().writer());
+            return 0;
+        },
+        .host => |options| try doHost(allocator, cli.positionals, options),
+        .get => |options| try doGet(allocator, cli.positionals, options),
+        .put => |options| try doPut(allocator, cli.positionals, options),
+        .version => {
+            var writer = std.io.getStdOut().writer();
+            try writer.writeAll(ftz_version ++ "\n");
+            return 0;
+        },
+    };
+}
 
 const HostState = struct {
     put_dir: ?std.fs.Dir,
     get_dir: ?std.fs.Dir,
 };
 
-fn doHost(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(HostArgs)) !u8 {
-    defer args.deinit();
-
+fn doHost(allocator: *std.mem.Allocator, positionals: []const []const u8, options: CliVerb.HostArgs) !u8 {
     var state = HostState{
         .put_dir = null,
         .get_dir = null,
     };
 
-    if (args.positionals.len > 1) {
+    if (positionals.len > 1) {
         var writer = std.io.getStdErr().writer();
         try writer.print("More than one directory is not allowed!\n", .{});
         return 1;
     }
 
-    if ((args.positionals.len == 0) and (args.options.@"get-dir" == null) and (args.options.@"put-dir" == null)) {
+    if ((positionals.len == 0) and (options.@"get-dir" == null) and (options.@"put-dir" == null)) {
         var writer = std.io.getStdErr().writer();
         try writer.print("Expected either one directory name or at least --get-dir or --put-dir set!\n", .{});
         return 1;
     }
 
-    const common_dir: ?[]const u8 = if (args.positionals.len == 1) args.positionals[0] else null;
+    const common_dir: ?[]const u8 = if (positionals.len == 1) positionals[0] else null;
 
-    if (args.options.@"get-dir" orelse common_dir) |path| {
+    if (options.@"get-dir" orelse common_dir) |path| {
         state.get_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = false, .no_follow = true });
     }
     defer if (state.get_dir) |*dir| dir.close();
 
-    if (args.options.@"put-dir" orelse common_dir) |path| {
+    if (options.@"put-dir" orelse common_dir) |path| {
         state.put_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = false, .no_follow = true });
     }
     defer if (state.put_dir) |*dir| dir.close();
@@ -105,7 +117,7 @@ fn doHost(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(HostA
 
     try sock.bind(network.EndPoint{
         .address = .{ .ipv4 = network.Address.IPv4.any },
-        .port = args.options.port,
+        .port = options.port,
     });
 
     try sock.listen();
@@ -225,27 +237,18 @@ const UriInformation = struct {
     }
 };
 
-const GetArgs = struct {
-    @"output": ?[]const u8 = null,
-
-    pub const shorthands = .{
-        .o = "output",
-    };
-};
-fn doGet(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(GetArgs)) !u8 {
-    defer args.deinit();
-
+fn doGet(allocator: *std.mem.Allocator, positionals: []const []const u8, options: CliVerb.GetArgs) !u8 {
     var stderr = std.io.getStdErr().writer();
 
-    if (args.positionals.len != 1) {
+    if (positionals.len != 1) {
         try stderr.print("Expected both source file and target URI!\n", .{});
         return 1;
     }
 
-    var server_data = UriInformation.parse(allocator, args.positionals[0]) catch return 1;
+    var server_data = UriInformation.parse(allocator, positionals[0]) catch return 1;
     defer server_data.deinit(allocator);
 
-    const target_file = args.options.output orelse std.fs.path.basename(server_data.path);
+    const target_file = options.output orelse std.fs.path.basename(server_data.path);
 
     var socket = network.connectToHost(allocator, server_data.host, server_data.port, .tcp) catch |err| switch (err) {
         error.CouldNotConnect => {
@@ -264,21 +267,19 @@ fn doGet(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(GetArg
     return 0;
 }
 
-const PutArgs = struct {};
-fn doPut(allocator: *std.mem.Allocator, args: args_parser.ParseArgsResult(PutArgs)) !u8 {
-    defer args.deinit();
-
+fn doPut(allocator: *std.mem.Allocator, positionals: []const []const u8, options: CliVerb.PutArgs) !u8 {
+    _ = options;
     var stderr = std.io.getStdErr().writer();
 
-    if (args.positionals.len != 2) {
+    if (positionals.len != 2) {
         try stderr.print("Expected both source file and target URI!\n", .{});
         return 1;
     }
 
-    var server_data = UriInformation.parse(allocator, args.positionals[1]) catch return 1;
+    var server_data = UriInformation.parse(allocator, positionals[1]) catch return 1;
     defer server_data.deinit(allocator);
 
-    var source_file = std.fs.cwd().openFile(args.positionals[0], .{ .read = true, .write = false }) catch |err| switch (err) {
+    var source_file = std.fs.cwd().openFile(positionals[0], .{ .read = true, .write = false }) catch |err| switch (err) {
         error.FileNotFound => {
             try stderr.writeAll("File not found!\n");
             return 1;
@@ -440,7 +441,7 @@ fn resolvePath(buffer: []u8, src_path: []const u8) error{BufferTooSmall}![]u8 {
     var end: usize = 0;
     buffer[0] = '/';
 
-    var iter = std.mem.tokenize(src_path, "/");
+    var iter = std.mem.tokenize(u8, src_path, "/");
     while (iter.next()) |segment| {
         if (std.mem.eql(u8, segment, ".")) {
             continue;
