@@ -396,7 +396,7 @@ fn printUsage(writer: anytype) !void {
     try writer.writeAll(
         \\ftz [verb]
         \\  Quickly transfer files between two systems connected via network.
-        \\        \\Verbs:
+        \\Verbs:
         \\  ftz help
         \\    Prints this help
         \\
