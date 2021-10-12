@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [master]
   schedule:
-    - cron: "0 5 * * *" # run at 5 AM UTC
+    - cron: '0 5 * * *' # run at 5 AM UTC
 
 jobs:
   cross-build:
@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          submodules: "recursive"
+          submodules: 'recursive'
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v1
@@ -33,3 +33,7 @@ jobs:
       - name: Compile executable
         run: |
           zig build install
+
+      - name: Run executable
+        run: |
+          ./zig-out/bin/ftz --help

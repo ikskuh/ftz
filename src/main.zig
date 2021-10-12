@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const network = @import("network");
 const uri_parser = @import("uri");
 const args_parser = @import("args");
@@ -132,7 +133,7 @@ fn doHost(allocator: *std.mem.Allocator, positionals: []const []const u8, option
         // std.log.info("accepted connection from {}", .{try client.getRemoteEndPoint()});
 
         handleClientConnection(state, &arena.allocator, client) catch |err| {
-            if (std.builtin.mode == .Debug)
+            if (builtin.mode == .Debug)
                 return err;
             std.log.err("handling client connection failed: {s}", .{@errorName(err)});
         };
