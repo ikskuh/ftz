@@ -6,7 +6,7 @@ const args_parser = @import("args");
 
 const default_port = 17457;
 const buffer_size = 2 * 1024 * 1024;
-const ftz_version = "1.0.0";
+const ftz_version = "1.1.0";
 
 const HashAlgorithm = std.crypto.hash.Md5;
 
@@ -34,7 +34,9 @@ const CliVerb = union(enum) {
             .o = "output",
         };
     };
-    const PutArgs = struct {};
+    const PutArgs = struct {
+        progress: bool = false,
+    };
 };
 
 pub fn main() !u8 {
@@ -168,7 +170,7 @@ fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client
             var file = try dir.openFile(path[1..], .{ .read = true, .write = false });
             defer file.close();
 
-            try transferFile(file, client);
+            try transferFile(file, client, false);
         } else {
             return error.GetNotAllowed;
         }
@@ -301,38 +303,76 @@ fn doPut(allocator: *std.mem.Allocator, positionals: []const []const u8, options
 
     try writer.print("PUT {s}\r\n", .{server_data.path});
 
-    try transferFile(source_file, socket);
+    try transferFile(source_file, socket, options.progress);
 
     return 0;
 }
 
 /// Transfers the given `file` to the `socket`. Will compute the hash for the file and prepend it to the stream.
-fn transferFile(file: std.fs.File, socket: network.Socket) !void {
+fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) !void {
     var buffer: [buffer_size]u8 = undefined;
 
-    var hasher = HashAlgorithm.init(.{});
+    var progress = std.Progress{};
 
-    while (true) {
-        const len = try file.read(&buffer);
-        if (len == 0)
-            break;
-        hasher.update(buffer[0..len]);
-    }
+    const stat = try file.stat();
 
-    var hash: [HashAlgorithm.digest_length]u8 = undefined;
-    hasher.final(&hash);
+    const hash = blk: {
+        var hash_node = if (show_progress)
+            try progress.start("Hashing", stat.size)
+        else
+            undefined;
+        defer if (show_progress) {
+            hash_node.end();
+        };
 
-    try file.seekTo(0);
+        var hasher = HashAlgorithm.init(.{});
+        var length: usize = 0;
+        while (true) {
+            const len = try file.read(&buffer);
+            if (len == 0)
+                break;
+            length += len;
 
-    var writer = socket.writer();
+            if (show_progress) {
+                hash_node.setCompletedItems(length);
+                progress.maybeRefresh();
+            }
 
-    try writer.print("{}\r\n", .{std.fmt.fmtSliceHexLower(&hash)});
+            hasher.update(buffer[0..len]);
+        }
 
-    while (true) {
-        const len = try file.read(&buffer);
-        if (len == 0)
-            break;
-        try writer.writeAll(buffer[0..len]);
+        var hash: [HashAlgorithm.digest_length]u8 = undefined;
+        hasher.final(&hash);
+        break :blk hash;
+    };
+
+    {
+        var transfer_node = if (show_progress)
+            try progress.start("Uploading", stat.size)
+        else
+            undefined;
+        defer if (show_progress) {
+            transfer_node.end();
+        };
+
+        try file.seekTo(0);
+
+        var writer = socket.writer();
+
+        try writer.print("{}\r\n", .{std.fmt.fmtSliceHexLower(&hash)});
+
+        var total_transferred: usize = 0;
+        while (true) {
+            const len = try file.read(&buffer);
+            if (len == 0)
+                break;
+            try writer.writeAll(buffer[0..len]);
+            total_transferred += len;
+            if (show_progress) {
+                transfer_node.setCompletedItems(total_transferred);
+                progress.maybeRefresh();
+            }
+        }
     }
 }
 
@@ -413,8 +453,9 @@ fn printUsage(writer: anytype) !void {
         \\    uri             The uri to the file that should be downloaded.
         \\    --output file   Saves the resulting file into [file] instead of the basename of the URI.
         \\
-        \\  ftz put [file] [uri]
+        \\  ftz put [--progress] [file] [uri]
         \\    Uploads [file] (a local path) to [uri] (a ftz uri)
+        \\    --progress      Show how much data is already transferred and provide a live update.
         \\
         \\  ftz version
         \\    Prints the ftz version.
