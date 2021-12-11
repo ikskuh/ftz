@@ -46,7 +46,7 @@ pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    const allocator = &gpa.allocator;
+    const allocator = gpa.allocator();
 
     var cli = args_parser.parseWithVerbForCurrentProcess(CliOptions, CliVerb, allocator, .print) catch return 1;
     defer cli.deinit();
@@ -83,7 +83,7 @@ const HostState = struct {
     get_dir: ?std.fs.Dir,
 };
 
-fn doHost(allocator: *std.mem.Allocator, positionals: []const []const u8, options: CliVerb.HostArgs) !u8 {
+fn doHost(allocator: std.mem.Allocator, positionals: []const []const u8, options: CliVerb.HostArgs) !u8 {
     var state = HostState{
         .put_dir = null,
         .get_dir = null,
@@ -134,7 +134,7 @@ fn doHost(allocator: *std.mem.Allocator, positionals: []const []const u8, option
 
         // std.log.info("accepted connection from {}", .{try client.getRemoteEndPoint()});
 
-        handleClientConnection(state, &arena.allocator, client) catch |err| {
+        handleClientConnection(state, arena.allocator(), client) catch |err| {
             if (builtin.mode == .Debug)
                 return err;
             std.log.err("handling client connection failed: {s}", .{@errorName(err)});
@@ -144,7 +144,7 @@ fn doHost(allocator: *std.mem.Allocator, positionals: []const []const u8, option
     return 0;
 }
 
-fn handleClientConnection(host: HostState, allocator: *std.mem.Allocator, client: network.Socket) !void {
+fn handleClientConnection(host: HostState, allocator: std.mem.Allocator, client: network.Socket) !void {
     var buffer: [1024]u8 = undefined;
 
     var reader = client.reader();
@@ -200,7 +200,7 @@ const UriInformation = struct {
     port: u16,
     path: []const u8,
 
-    fn parse(allocator: *std.mem.Allocator, string: []const u8) !Self {
+    fn parse(allocator: std.mem.Allocator, string: []const u8) !Self {
         const stderr = std.io.getStdErr().writer();
 
         var uri = uri_parser.parse(string) catch |err| {
@@ -234,13 +234,13 @@ const UriInformation = struct {
         };
     }
 
-    fn deinit(self: *Self, allocator: *std.mem.Allocator) void {
+    fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         self.* = undefined;
     }
 };
 
-fn doGet(allocator: *std.mem.Allocator, positionals: []const []const u8, options: CliVerb.GetArgs) !u8 {
+fn doGet(allocator: std.mem.Allocator, positionals: []const []const u8, options: CliVerb.GetArgs) !u8 {
     var stderr = std.io.getStdErr().writer();
 
     if (positionals.len != 1) {
@@ -270,7 +270,7 @@ fn doGet(allocator: *std.mem.Allocator, positionals: []const []const u8, options
     return 0;
 }
 
-fn doPut(allocator: *std.mem.Allocator, positionals: []const []const u8, options: CliVerb.PutArgs) !u8 {
+fn doPut(allocator: std.mem.Allocator, positionals: []const []const u8, options: CliVerb.PutArgs) !u8 {
     _ = options;
     var stderr = std.io.getStdErr().writer();
 
