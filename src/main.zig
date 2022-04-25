@@ -167,7 +167,7 @@ fn handleClientConnection(host: HostState, allocator: std.mem.Allocator, client:
             std.debug.assert(path[0] == '/');
             std.log.info("{}: GET {s}", .{ remote_endpoint, path });
 
-            var file = try dir.openFile(path[1..], .{ .read = true, .write = false });
+            var file = try dir.openFile(path[1..], .{ .mode = .read_only });
             defer file.close();
 
             try transferFile(file, client, false);
@@ -222,15 +222,15 @@ const UriInformation = struct {
             try stderr.print("URI requires host name!\n", .{});
             return error.InvalidUri;
         }
-        if (uri.path == null) {
-            try stderr.print("URI requires host name!\n", .{});
+        if (uri.path.len == 0) {
+            try stderr.print("URI requires non-empty path!\n", .{});
             return error.InvalidUri;
         }
 
         return Self{
             .host = uri.host.?,
             .port = uri.port orelse default_port,
-            .path = try uri_parser.unescapeString(allocator, uri.path.?),
+            .path = try uri_parser.unescapeString(allocator, uri.path),
         };
     }
 
@@ -282,7 +282,7 @@ fn doPut(allocator: std.mem.Allocator, positionals: []const []const u8, options:
     var server_data = UriInformation.parse(allocator, positionals[1]) catch return 1;
     defer server_data.deinit(allocator);
 
-    var source_file = std.fs.cwd().openFile(positionals[0], .{ .read = true, .write = false }) catch |err| switch (err) {
+    var source_file = std.fs.cwd().openFile(positionals[0], .{ .mode = .read_only }) catch |err| switch (err) {
         error.FileNotFound => {
             try stderr.writeAll("File not found!\n");
             return 1;
@@ -318,7 +318,7 @@ fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) 
 
     const hash = blk: {
         var hash_node = if (show_progress)
-            try progress.start("Hashing", stat.size)
+            progress.start("Hashing", stat.size)
         else
             undefined;
         defer if (show_progress) {
@@ -348,7 +348,7 @@ fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) 
 
     {
         var transfer_node = if (show_progress)
-            try progress.start("Uploading", stat.size)
+            progress.start("Uploading", stat.size)
         else
             undefined;
         defer if (show_progress) {
