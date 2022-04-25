@@ -308,6 +308,18 @@ fn doPut(allocator: std.mem.Allocator, positionals: []const []const u8, options:
     return 0;
 }
 
+fn mapToProgress(val: u64, limit: u64) usize {
+    if (@sizeOf(u64) > @sizeOf(usize)) {
+        if (limit > std.math.maxInt(usize)) {
+            return @intCast(usize, val >> (@bitSizeOf(u64) - @bitSizeOf(usize)));
+        } else {
+            return @intCast(usize, val);
+        }
+    } else {
+        return val;
+    }
+}
+
 /// Transfers the given `file` to the `socket`. Will compute the hash for the file and prepend it to the stream.
 fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) !void {
     var buffer: [buffer_size]u8 = undefined;
@@ -318,7 +330,7 @@ fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) 
 
     const hash = blk: {
         var hash_node = if (show_progress)
-            progress.start("Hashing", stat.size)
+            progress.start("Hashing", mapToProgress(stat.size, stat.size))
         else
             undefined;
         defer if (show_progress) {
@@ -334,7 +346,7 @@ fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) 
             length += len;
 
             if (show_progress) {
-                hash_node.setCompletedItems(length);
+                hash_node.setCompletedItems(mapToProgress(length, stat.size));
                 progress.maybeRefresh();
             }
 
@@ -348,7 +360,7 @@ fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) 
 
     {
         var transfer_node = if (show_progress)
-            progress.start("Uploading", stat.size)
+            progress.start("Uploading", mapToProgress(stat.size, stat.size))
         else
             undefined;
         defer if (show_progress) {
@@ -369,7 +381,7 @@ fn transferFile(file: std.fs.File, socket: network.Socket, show_progress: bool) 
             try writer.writeAll(buffer[0..len]);
             total_transferred += len;
             if (show_progress) {
-                transfer_node.setCompletedItems(total_transferred);
+                transfer_node.setCompletedItems(mapToProgress(total_transferred, stat.size));
                 progress.maybeRefresh();
             }
         }
