@@ -104,12 +104,12 @@ fn doHost(allocator: std.mem.Allocator, positionals: []const []const u8, options
     const common_dir: ?[]const u8 = if (positionals.len == 1) positionals[0] else null;
 
     if (options.@"get-dir" orelse common_dir) |path| {
-        state.get_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = false, .no_follow = true });
+        state.get_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .no_follow = true });
     }
     defer if (state.get_dir) |*dir| dir.close();
 
     if (options.@"put-dir" orelse common_dir) |path| {
-        state.put_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .iterate = false, .no_follow = true });
+        state.put_dir = try std.fs.cwd().openDir(path, .{ .access_sub_paths = true, .no_follow = true });
     }
     defer if (state.put_dir) |*dir| dir.close();
 
