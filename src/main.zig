@@ -271,7 +271,6 @@ fn doGet(allocator: std.mem.Allocator, positionals: []const []const u8, options:
 }
 
 fn doPut(allocator: std.mem.Allocator, positionals: []const []const u8, options: CliVerb.PutArgs) !u8 {
-    _ = options;
     var stderr = std.io.getStdErr().writer();
 
     if (positionals.len != 2) {
