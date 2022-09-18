@@ -167,10 +167,15 @@ fn handleClientConnection(host: HostState, allocator: std.mem.Allocator, client:
             std.debug.assert(path[0] == '/');
             std.log.info("{}: GET {s}", .{ remote_endpoint, path });
 
-            var file = try dir.openFile(path[1..], .{ .mode = .read_only });
+            var file = dir.openFile(path[1..], .{ .mode = .read_only }) catch |e| {
+                std.log.err("opening file to send to client: {}", .{e});
+                return;
+            };
             defer file.close();
 
-            try transferFile(file, client, false);
+            transferFile(file, client, false) catch |e| {
+                std.log.err("sending file to client: {}", .{e});
+            };
         } else {
             return error.GetNotAllowed;
         }
@@ -183,7 +188,9 @@ fn handleClientConnection(host: HostState, allocator: std.mem.Allocator, client:
 
             std.log.info("{}: PUT {s}", .{ remote_endpoint, path });
 
-            try receiveFile(dir, path[1..], client);
+            receiveFile(dir, path[1..], client) catch |e| {
+                std.log.err("receiving file from client: {}", .{e});
+        };
         } else {
             return error.PutNotAllowed;
         }
